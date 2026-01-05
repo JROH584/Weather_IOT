@@ -52,8 +52,8 @@
 
     <div class="container py-5">
         <div class="header-section">
-            <h1 class="fw-bold"><i class="fas fa-microchip"></i> Hệ Thống Giám Sát ESP32</h1>
-            <p class="fs-5" id="greeting">Chào mừng bạn!</p>
+            <h1 class="fw-bold"><i class="fas fa-microchip"></i> Hệ Thống Giám Sát IoT</h1>
+            <p class="fs-5" id="greeting">Đang tải...</p>
         </div>
 
         <div class="row g-3 mb-4 justify-content-center">
@@ -113,7 +113,7 @@
 
             <div class="col-lg-8">
                 <div class="glass-panel p-4 h-100">
-                    <h5 class="fw-bold mb-3 text-secondary"><i class="fas fa-chart-line me-2"></i>Biểu đồ Lịch sử (Realtime từ ESP32)</h5>
+                    <h5 class="fw-bold mb-3 text-secondary"><i class="fas fa-chart-line me-2"></i>Biểu đồ Lịch sử (Dữ liệu từ MongoDB)</h5>
                     <div style="height: 300px;"><canvas id="envChart"></canvas></div>
                 </div>
             </div>
@@ -123,12 +123,16 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <script>
+        // --- CẤU HÌNH ĐƯỜNG DẪN API ---
+        // Tự động dùng URL Render nếu không chạy ở Localhost
+        const RENDER_URL = "https://weather-db-iot.onrender.com/api/env-data";
         const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-                ? "http://localhost:5000/api/env-data" 
-                : "/api/env-data";
+                        ? "http://localhost:5000/api/env-data" 
+                        : RENDER_URL;
+
         let lastPressure = null;
 
-        // 1. Khởi tạo Biểu đồ
+        // 1. Khởi tạo Biểu đồ (Tối ưu để hiển thị đẹp hơn)
         const ctx = document.getElementById('envChart').getContext('2d');
         const envChart = new Chart(ctx, {
             type: 'line',
@@ -158,6 +162,9 @@
             options: { 
                 responsive: true, 
                 maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' }
+                },
                 scales: {
                     y: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Nhiệt độ (°C)' } },
                     y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Độ ẩm (%)' } }
@@ -165,87 +172,80 @@
             }
         });
 
-        // 2. Hàm Hiển thị dữ liệu và làm tròn số
+        // 2. Hàm xử lý hiển thị số liệu
         function displayRealData(temp, hum, pressure, timestamp) {
-            // Tối ưu: Làm tròn 1 chữ số thập phân bằng .toFixed(1)
-            const fTemp = parseFloat(temp).toFixed(1);
-            const fHum = parseFloat(hum).toFixed(1);
-            const fPres = parseFloat(pressure).toFixed(1);
+            const fTemp = parseFloat(temp || 0).toFixed(1);
+            const fHum = parseFloat(hum || 0).toFixed(1);
+            const fPres = parseFloat(pressure || 0).toFixed(1);
 
             document.getElementById('temp-val').innerText = fTemp;
             document.getElementById('hum-val').innerText = fHum;
             document.getElementById('pres-val').innerText = fPres;
-            document.getElementById('last-update').innerText = new Date(timestamp).toLocaleTimeString('vi-VN');
+            
+            const dateObj = new Date(timestamp);
+            document.getElementById('last-update').innerText = isNaN(dateObj) ? "--:--:--" : dateObj.toLocaleTimeString('vi-VN');
             
             // Cập nhật progress bars
             document.getElementById('prog-temp').style.width = Math.min((temp / 50 * 100), 100) + '%';
             document.getElementById('prog-hum').style.width = hum + '%';
-            
-            // Scale áp suất từ 950 đến 1050 để thấy sự thay đổi rõ hơn
             let presPercent = ((pressure - 950) / 100) * 100;
             document.getElementById('prog-pres').style.width = Math.max(5, Math.min(presPercent, 100)) + '%';
 
-            // Phân tích AI và cảnh báo áp suất đứng yên
-            document.getElementById('msg-temp').innerText = temp < 20 ? "Trời lạnh, hãy mặc ấm." : (temp < 32 ? "Thời tiết rất dễ chịu." : "Trời nóng, hạn chế ra ngoài.");
+            // Phân tích AI đơn giản
+            document.getElementById('msg-temp').innerText = temp < 20 ? "Trời lạnh, hãy mặc ấm." : (temp < 32 ? "Thời tiết rất dễ chịu." : "Trời nóng, hãy bật quạt.");
             
-            let pressureAdvice = "Áp suất ổn định, trời quang.";
-            if (lastPressure !== null && Math.abs(lastPressure - pressure) > 2) {
-                pressureAdvice = "Áp suất biến động mạnh, có thể có mưa/bão!";
-                document.getElementById('ai-status-emoji').innerText = "⚠️";
+            let pressureAdvice = "Áp suất ổn định.";
+            if (lastPressure !== null && Math.abs(lastPressure - pressure) > 1) {
+                pressureAdvice = "Áp suất thay đổi, có thể sắp mưa.";
+                document.getElementById('ai-status-emoji').innerText = "☁️";
             } else {
-                document.getElementById('ai-status-emoji').innerText = "✅";
+                document.getElementById('ai-status-emoji').innerText = "☀️";
             }
             document.getElementById('msg-pres').innerText = pressureAdvice;
-            
-            lastPressure = pressure; // Lưu lại để so sánh lần sau
+            lastPressure = pressure;
         }
 
-        // 3. Lấy dữ liệu từ Server
+        // 3. Hàm lấy dữ liệu chính (Sửa lỗi 404 và xử lý mảng rỗng)
         async function fetchData() {
             try {
                 const response = await fetch(API_URL);
-                if (!response.ok) throw new Error("Server response error");
+                if (!response.ok) throw new Error("Server response error: " + response.status);
                 
                 const history = await response.json();
-                
-                if (history && history.length > 0) {
-                    const latest = history[0]; 
-                    
+                const alertBox = document.getElementById('main-alert');
+
+                if (Array.isArray(history) && history.length > 0) {
+                    // Render danh sách từ cũ đến mới cho biểu đồ
+                    const displayData = [...history].reverse(); 
+                    const latest = history[0]; // Bản ghi mới nhất (do backend sort -1)
+
                     displayRealData(latest.temperature, latest.humidity, latest.pressure, latest.timestamp);
-                    
-                    // Cập nhật trạng thái kết nối
-                    const alertBox = document.getElementById('main-alert');
+
+                    // Cập nhật biểu đồ
+                    envChart.data.labels = displayData.map(d => new Date(d.timestamp).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}));
+                    envChart.data.datasets[0].data = displayData.map(d => d.temperature);
+                    envChart.data.datasets[1].data = displayData.map(d => d.humidity);
+                    envChart.update('none');
+
                     alertBox.className = "status-badge bg-success";
                     alertBox.innerText = "Kết nối ổn định";
-
-                    // Cập nhật biểu đồ nếu có dữ liệu mới
-                    const timeLabel = new Date(latest.timestamp).toLocaleTimeString('vi-VN');
-                    if (envChart.data.labels[envChart.data.labels.length - 1] !== timeLabel) {
-                        envChart.data.labels.push(timeLabel);
-                        envChart.data.datasets[0].data.push(latest.temperature);
-                        envChart.data.datasets[1].data.push(latest.humidity);
-                        
-                        if(envChart.data.labels.length > 20) {
-                            envChart.data.labels.shift();
-                            envChart.data.datasets.forEach(d => d.data.shift());
-                        }
-                        envChart.update('none'); // Update mượt không cần animation lại toàn bộ
-                    }
+                } else {
+                    alertBox.className = "status-badge bg-warning text-dark";
+                    alertBox.innerText = "Chưa có dữ liệu từ ESP32";
                 }
             } catch (err) { 
-                console.error("Lỗi lấy dữ liệu:", err);
-                const alertBox = document.getElementById('main-alert');
-                alertBox.className = "status-badge bg-danger";
-                alertBox.innerText = "Mất kết nối Server!";
+                console.error("Lỗi:", err);
+                document.getElementById('main-alert').className = "status-badge bg-danger";
+                document.getElementById('main-alert').innerText = "Lỗi kết nối Server!";
             }
         }
 
-        // 4. Khởi chạy
-        setInterval(fetchData, 2000); // Lấy dữ liệu mỗi 2 giây
-        fetchData(); // Chạy lần đầu ngay lập tức
-
+        // 4. Khởi chạy và Lời chào
         const hour = new Date().getHours();
         document.getElementById('greeting').innerText = hour < 12 ? "Chào buổi sáng!" : (hour < 18 ? "Chào buổi chiều!" : "Chào buổi tối!");
+
+        fetchData(); // Chạy ngay lập tức
+        setInterval(fetchData, 5000); // Cập nhật mỗi 5 giây (tránh spam Render Free)
     </script>
 </body>
 </html>

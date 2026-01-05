@@ -1,57 +1,78 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const bodyParser = require('body-parser');
 const cors = require('cors');
-const path = require('path'); // 1. Thêm thư viện path để xử lý đường dẫn file
+const path = require('path');
+const os = require('os');
 
 const app = express();
+const PORT = process.env.PORT || 5000;
+
+// --- 1. MIDDLEWARE (Phải đặt trước các Route) ---
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
+// Chỉ định rõ thư mục chứa file tĩnh, không nên dùng __dirname cho toàn bộ để tránh lộ file code
+app.use(express.static(path.join(__dirname))); 
 
-// Cấu hình để server có thể đọc được các file tĩnh (như CSS, ảnh nếu có) ở thư mục gốc
-app.use(express.static(__dirname));
+// --- 2. KẾT NỐI MONGODB ATLAS ---
+const mongoURI = "mongodb+srv://Huy123:Huy123@cluster0.k63f6zk.mongodb.net/SmartHomeDB?retryWrites=true&w=majority";
 
-// 2. KẾT NỐI MONGODB
-const mongoURI = "mongodb+srv://Huy123:Huy123@cluster0.k63f6zk.mongodb.net/";
 mongoose.connect(mongoURI)
-    .then(() => console.log("Đã kết nối thành công MongoDB Atlas"))
-    .catch(err => console.log("Lỗi kết nối MongoDB:", err));
+    .then(() => console.log("✅ Kết nối MongoDB thành công!"))
+    .catch(err => console.error("❌ Lỗi kết nối MongoDB:", err.message));
 
-// TẠO SCHEMA
-const SensorSchema = new mongoose.Schema({
-    temperature: Number,
-    humidity: Number,
-    pressure: Number,
+// --- 3. SCHEMA & MODEL ---
+const EnvSchema = new mongoose.Schema({
+    temperature: { type: Number, default: 0 },
+    humidity: { type: Number, default: 0 },
+    pressure: { type: Number, default: 0 },
     timestamp: { type: Date, default: Date.now }
 });
-const SensorData = mongoose.model('SensorData', SensorSchema);
+const EnvData = mongoose.model('EnvData', EnvSchema);
 
-// 3. ĐỊNH NGHĨA ROUTE ĐỂ HIỂN THỊ FILE Khung.html
+// --- 4. CÁC ĐƯỜNG DẪN API (ROUTES) ---
+
+// Trang chủ
 app.get('/', (req, res) => {
-    // Trả về file Khung.html nằm ở thư mục gốc
     res.sendFile(path.join(__dirname, 'Khung.html'));
 });
 
-// 4. API ĐỂ ESP32 GỬI DỮ LIỆU ĐẾN
-app.post('/api/env-data', async (req, res) => {
+// API GET: Lấy dữ liệu (Dùng cho Dashboard)
+app.get('/api/env-data', async (req, res) => {
+    console.log("🔍 Đang nhận yêu cầu GET dữ liệu..."); // Log để kiểm tra xem request có tới đây không
     try {
-        console.log("Dữ liệu nhận được từ ESP32:", req.body);
-        const newData = new SensorData({
-            temperature: req.body.temperature,
-            humidity: req.body.humidity,
-            pressure: req.body.pressure
-        });
-        await newData.save();
-        res.status(201).send("Lưu dữ liệu thành công!");
+        const data = await EnvData.find().sort({ timestamp: -1 }).limit(30);
+        res.status(200).json(data);
     } catch (error) {
-        console.error("Lỗi khi lưu dữ liệu:", error);
-        res.status(500).send("Lỗi Server");
+        console.error("Lỗi GET:", error);
+        res.status(500).json({ error: "Lỗi Server khi lấy dữ liệu" });
     }
 });
 
-// 5. CHẠY SERVER (Sửa lại PORT để chạy được trên Render)
-const PORT = process.env.PORT || 5000; // Render sẽ tự cấp Port qua biến môi trường
-app.listen(PORT, () => {
-    console.log(`Server đang chạy tại Port: ${PORT}`);
-    console.log(`Truy cập giao diện tại: http://localhost:${PORT}`);
+// API POST: Nhận dữ liệu từ ESP32
+app.post('/api/env-data', async (req, res) => {
+    try {
+        const newData = new EnvData(req.body);
+        await newData.save();
+        console.log(`📥 Nhận data mới: T:${req.body.temperature}°C`);
+        res.status(201).json({ message: "Lưu thành công!" });
+    } catch (error) {
+        res.status(500).json({ error: "Lỗi Server khi lưu dữ liệu" });
+    }
+});
+
+// --- 5. KHỞI CHẠY SERVER ---
+app.listen(PORT, '0.0.0.0', () => {
+    const networkInterfaces = os.networkInterfaces();
+    let localIp = 'localhost';
+    for (let name in networkInterfaces) {
+        for (let iface of networkInterfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                localIp = iface.address;
+            }
+        }
+    }
+    console.log("-----------------------------------------");
+    console.log(`🚀 Server đang chạy tại: http://localhost:${PORT}`);
+    console.log(`📡 ESP32 URL: http://${localIp}:${PORT}/api/env-data`);
+    console.log("-----------------------------------------");
 });
