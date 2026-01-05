@@ -1,94 +1,251 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const path = require('path');
-const os = require('os');
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Environment Dashboard - Realtime</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root { --primary-color: #4e54c8; --secondary-color: #8f94fb; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+            background-size: 400% 400%;
+            animation: gradient 15s ease infinite;
+            min-height: 100vh; color: #333;
+        }
+        @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+            transition: transform 0.3s ease;
+            height: 100%;
+        }
+        .glass-panel:hover { transform: translateY(-5px); }
+        .header-section { text-align: center; color: white; margin-bottom: 30px; text-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .stat-card-body { padding: 25px; position: relative; overflow: hidden; }
+        .stat-icon { position: absolute; right: -10px; bottom: -10px; font-size: 5rem; opacity: 0.1; transform: rotate(-20deg); }
+        .stat-value { font-size: 2.2rem; font-weight: 700; line-height: 1; }
+        .stat-label { font-size: 0.9rem; color: #666; font-weight: 500; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .text-temp { color: #ff6b6b; } 
+        .text-hum { color: #4facfe; } 
+        .text-pres { color: #9b59b6; }
 
-const app = express();
+        .ai-header { background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 20px; border-radius: 20px 20px 0 0; display: flex; align-items: center; justify-content: space-between; }
+        .ai-content { padding: 20px; }
+        .advice-item { background: rgba(248, 249, 250, 0.8); border-radius: 12px; padding: 12px; margin-bottom: 10px; border-left: 4px solid #ccc; display: flex; align-items: center; }
+        .advice-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 15px; color: white; flex-shrink: 0;}
+        .status-badge { padding: 8px 15px; border-radius: 30px; font-weight: 600; color: white; display: inline-block; width: 100%; text-align: center; margin-top: 10px; transition: 0.3s; }
+    </style>
+</head>
+<body>
 
-// --- 1. CẤU HÌNH PORT (Quan trọng cho Render) ---
-const PORT = process.env.PORT || 5000; 
+    <div class="container py-5">
+        <div class="header-section">
+            <h1 class="fw-bold"><i class="fas fa-microchip"></i> Hệ Thống Giám Sát ESP32</h1>
+            <p class="fs-5" id="greeting">Chào mừng bạn!</p>
+        </div>
 
-app.use(cors()); 
-app.use(express.json()); 
+        <div class="row g-3 mb-4 justify-content-center">
+            <div class="col-12 col-md-4">
+                <div class="glass-panel stat-card-body">
+                    <div class="stat-label"><i class="fas fa-thermometer-half me-2"></i>Nhiệt độ</div>
+                    <div class="stat-value text-temp mt-2"><span id="temp-val">--</span><span class="unit fs-6">°C</span></div>
+                    <div class="progress mt-3" style="height: 6px;"><div id="prog-temp" class="progress-bar bg-danger" style="width: 0%"></div></div>
+                    <i class="fas fa-fire stat-icon text-temp"></i>
+                </div>
+            </div>
+            
+            <div class="col-12 col-md-4">
+                <div class="glass-panel stat-card-body">
+                    <div class="stat-label"><i class="fas fa-tint me-2"></i>Độ ẩm</div>
+                    <div class="stat-value text-hum mt-2"><span id="hum-val">--</span><span class="unit fs-6">%</span></div>
+                    <div class="progress mt-3" style="height: 6px;"><div id="prog-hum" class="progress-bar bg-info" style="width: 0%"></div></div>
+                    <i class="fas fa-water stat-icon text-hum"></i>
+                </div>
+            </div>
 
-// Cấu hình phục vụ file tĩnh ngay tại thư mục gốc (nơi chứa Khung.html, CSS, JS)
-app.use(express.static(__dirname));
+            <div class="col-12 col-md-4">
+                <div class="glass-panel stat-card-body">
+                    <div class="stat-label"><i class="fas fa-tachometer-alt me-2"></i>Áp suất</div>
+                    <div class="stat-value text-pres mt-2"><span id="pres-val">--</span><span class="unit fs-6">hPa</span></div>
+                    <div class="progress mt-3" style="height: 6px;"><div id="prog-pres" class="progress-bar" style="background-color: #9b59b6; width: 0%"></div></div>
+                    <i class="fas fa-compress-arrows-alt stat-icon text-pres"></i>
+                </div>
+            </div>
+        </div>
 
-// --- 2. KẾT NỐI MONGODB ---
-const mongoURI = "mongodb+srv://Huy123:Huy123@cluster0.k63f6zk.mongodb.net/SmartHomeDB?retryWrites=true&w=majority";
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="glass-panel h-100 p-0 d-flex flex-column">
+                    <div class="ai-header">
+                        <span class="fw-bold"><i class="fas fa-robot me-2"></i>Trợ Lý Thông Minh</span>
+                        <span id="ai-status-emoji" style="font-size: 1.5rem;">📡</span>
+                    </div>
+                    <div class="ai-content flex-grow-1">
+                        <div class="advice-item" style="border-color: #ff6b6b;">
+                            <div class="advice-icon bg-danger"><i class="fas fa-tshirt"></i></div>
+                            <div><small class="text-muted d-block">Trang phục</small><span id="msg-temp" class="fw-bold">Đang phân tích...</span></div>
+                        </div>
+                        <div class="advice-item" style="border-color: #9b59b6;">
+                            <div class="advice-icon" style="background-color: #9b59b6;"><i class="fas fa-heartbeat"></i></div>
+                            <div><small class="text-muted d-block">Sức khỏe</small><span id="msg-pres" class="fw-bold">Đang phân tích...</span></div>
+                        </div>
+                        <div class="advice-item" style="border-color: #23d5ab;">
+                            <div class="advice-icon" style="background-color: #23d5ab;"><i class="fas fa-clock"></i></div>
+                            <div><small class="text-muted d-block">Cập nhật lần cuối</small><span id="last-update" class="fw-bold">--:--:--</span></div>
+                        </div>
+                        
+                        <div id="main-alert" class="status-badge bg-secondary">Đang kết nối...</div>
+                    </div>
+                </div>
+            </div>
 
-mongoose.connect(mongoURI)
-    .then(() => {
-        console.log("-----------------------------------------");
-        console.log("✅ Đã kết nối MongoDB Atlas thành công!");
-    })
-    .catch(err => {
-        console.error("❌ Lỗi kết nối MongoDB:");
-        console.error(err.message);
-    });
+            <div class="col-lg-8">
+                <div class="glass-panel p-4 h-100">
+                    <h5 class="fw-bold mb-3 text-secondary"><i class="fas fa-chart-line me-2"></i>Biểu đồ Lịch sử (Realtime từ ESP32)</h5>
+                    <div style="height: 300px;"><canvas id="envChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+    </div>
 
-// --- 3. SCHEMA (Cấu trúc dữ liệu) ---
-const EnvSchema = new mongoose.Schema({
-    temperature: { type: Number, default: 0 },
-    humidity: { type: Number, default: 0 },
-    pressure: { type: Number, default: 0 },
-    rain: { type: Number, default: 0 },
-    aqi: { type: Number, default: 0 },
-    timestamp: { type: Date, default: Date.now }
-});
-const EnvData = mongoose.model('EnvData', EnvSchema);
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-// --- 4. API ROUTES ---
+    <script>
+        const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+                ? "http://localhost:5000/api/env-data" 
+                : "/api/env-data";
+        let lastPressure = null;
 
-// Giao diện chính: Trả về file Khung.html (Đã sửa từ index.html)
-app.get('/', (req, res) => { 
-    // Sử dụng path.join(__dirname) để đảm bảo Render tìm đúng file ở thư mục gốc
-    res.sendFile(path.join(__dirname, 'Khung.html')); 
-});
+        // 1. Khởi tạo Biểu đồ
+        const ctx = document.getElementById('envChart').getContext('2d');
+        const envChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { 
+                        label: 'Nhiệt độ (°C)', 
+                        borderColor: '#ff6b6b', 
+                        backgroundColor: 'rgba(255, 107, 107, 0.1)', 
+                        fill: true, 
+                        data: [], 
+                        tension: 0.4,
+                        yAxisID: 'y'
+                    },
+                    { 
+                        label: 'Độ ẩm (%)', 
+                        borderColor: '#4facfe', 
+                        backgroundColor: 'rgba(79, 172, 254, 0.1)', 
+                        fill: true, 
+                        data: [], 
+                        tension: 0.4,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false,
+                scales: {
+                    y: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Nhiệt độ (°C)' } },
+                    y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Độ ẩm (%)' } }
+                }
+            }
+        });
 
-// API nhận dữ liệu từ ESP32
-app.post('/api/env-data', async (req, res) => {
-    try {
-        const newData = new EnvData(req.body);
-        await newData.save();
-        const time = new Date().toLocaleTimeString();
-        console.log(`[${time}] 📥 ESP32 gửi: Temp:${req.body.temperature}°C, Hum:${req.body.humidity}%`);
-        res.status(201).json({ message: "Lưu thành công!" });
-    } catch (error) { 
-        res.status(500).json({ error: "Lỗi Server" }); 
-    }
-});
+        // 2. Hàm Hiển thị dữ liệu và làm tròn số
+        function displayRealData(temp, hum, pressure, timestamp) {
+            // Tối ưu: Làm tròn 1 chữ số thập phân bằng .toFixed(1)
+            const fTemp = parseFloat(temp).toFixed(1);
+            const fHum = parseFloat(hum).toFixed(1);
+            const fPres = parseFloat(pressure).toFixed(1);
 
-// API lấy 30 bản ghi mới nhất cho Dashboard
-app.get('/api/env-data', async (req, res) => {
-    try {
-        const data = await EnvData.find().sort({ timestamp: -1 }).limit(30);
-        res.json(data);
-    } catch (error) { 
-        res.status(500).json({ error: "Lỗi lấy data" }); 
-    }
-});
+            document.getElementById('temp-val').innerText = fTemp;
+            document.getElementById('hum-val').innerText = fHum;
+            document.getElementById('pres-val').innerText = fPres;
+            document.getElementById('last-update').innerText = new Date(timestamp).toLocaleTimeString('vi-VN');
+            
+            // Cập nhật progress bars
+            document.getElementById('prog-temp').style.width = Math.min((temp / 50 * 100), 100) + '%';
+            document.getElementById('prog-hum').style.width = hum + '%';
+            
+            // Scale áp suất từ 950 đến 1050 để thấy sự thay đổi rõ hơn
+            let presPercent = ((pressure - 950) / 100) * 100;
+            document.getElementById('prog-pres').style.width = Math.max(5, Math.min(presPercent, 100)) + '%';
 
-// --- 5. KHỞI CHẠY SERVER ---
-app.listen(PORT, '0.0.0.0', () => { 
-    const networkInterfaces = os.networkInterfaces();
-    let localIp = 'localhost';
-    for (let interfaceName in networkInterfaces) {
-        for (let iface of networkInterfaces[interfaceName]) {
-            if (iface.family === 'IPv4' && !iface.internal) {
-                localIp = iface.address;
+            // Phân tích AI và cảnh báo áp suất đứng yên
+            document.getElementById('msg-temp').innerText = temp < 20 ? "Trời lạnh, hãy mặc ấm." : (temp < 32 ? "Thời tiết rất dễ chịu." : "Trời nóng, hạn chế ra ngoài.");
+            
+            let pressureAdvice = "Áp suất ổn định, trời quang.";
+            if (lastPressure !== null && Math.abs(lastPressure - pressure) > 2) {
+                pressureAdvice = "Áp suất biến động mạnh, có thể có mưa/bão!";
+                document.getElementById('ai-status-emoji').innerText = "⚠️";
+            } else {
+                document.getElementById('ai-status-emoji').innerText = "✅";
+            }
+            document.getElementById('msg-pres').innerText = pressureAdvice;
+            
+            lastPressure = pressure; // Lưu lại để so sánh lần sau
+        }
+
+        // 3. Lấy dữ liệu từ Server
+        async function fetchData() {
+            try {
+                const response = await fetch(API_URL);
+                if (!response.ok) throw new Error("Server response error");
+                
+                const history = await response.json();
+                
+                if (history && history.length > 0) {
+                    const latest = history[0]; 
+                    
+                    displayRealData(latest.temperature, latest.humidity, latest.pressure, latest.timestamp);
+                    
+                    // Cập nhật trạng thái kết nối
+                    const alertBox = document.getElementById('main-alert');
+                    alertBox.className = "status-badge bg-success";
+                    alertBox.innerText = "Kết nối ổn định";
+
+                    // Cập nhật biểu đồ nếu có dữ liệu mới
+                    const timeLabel = new Date(latest.timestamp).toLocaleTimeString('vi-VN');
+                    if (envChart.data.labels[envChart.data.labels.length - 1] !== timeLabel) {
+                        envChart.data.labels.push(timeLabel);
+                        envChart.data.datasets[0].data.push(latest.temperature);
+                        envChart.data.datasets[1].data.push(latest.humidity);
+                        
+                        if(envChart.data.labels.length > 20) {
+                            envChart.data.labels.shift();
+                            envChart.data.datasets.forEach(d => d.data.shift());
+                        }
+                        envChart.update('none'); // Update mượt không cần animation lại toàn bộ
+                    }
+                }
+            } catch (err) { 
+                console.error("Lỗi lấy dữ liệu:", err);
+                const alertBox = document.getElementById('main-alert');
+                alertBox.className = "status-badge bg-danger";
+                alertBox.innerText = "Mất kết nối Server!";
             }
         }
-    }
 
-    console.log("-----------------------------------------");
-    console.log(`🚀 Server đang chạy thành công!`);
-    console.log(`🔗 Link Web: http://localhost:${PORT}`);
-    if (process.env.PORT) {
-        console.log(`🌍 Server đang chạy trên Cloud (Render)`);
-    } else {
-        console.log(`🏠 Link nội bộ (LAN) cho ESP32: http://${localIp}:${PORT}/api/env-data`);
-    }
-    console.log("-----------------------------------------");
-});
+        // 4. Khởi chạy
+        setInterval(fetchData, 2000); // Lấy dữ liệu mỗi 2 giây
+        fetchData(); // Chạy lần đầu ngay lập tức
+
+        const hour = new Date().getHours();
+        document.getElementById('greeting').innerText = hour < 12 ? "Chào buổi sáng!" : (hour < 18 ? "Chào buổi chiều!" : "Chào buổi tối!");
+    </script>
+</body>
+</html>
